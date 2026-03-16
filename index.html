@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CV Tech Parser</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js" defer></script>
+  </head>
+  <body>
+    <main class="container">
+      <section class="hero">
+        <h1>Analiza tu CV Tech al instante</h1>
+        <p>
+          Sube tu CV en formato <strong>PDF</strong> o <strong>DOCX</strong> y extrae datos clave como nombre,
+          experiencia, roles, tecnologías e idiomas.
+        </p>
+      </section>
+
+      <section class="uploader" aria-labelledby="upload-title">
+        <h2 id="upload-title">Subir CV</h2>
+        <label for="cvFile" class="upload-button">Seleccionar archivo</label>
+        <input id="cvFile" type="file" accept=".pdf,.doc,.docx" />
+        <p id="fileMeta" class="file-meta">Aún no has seleccionado ningún archivo.</p>
+      </section>
+
+      <section class="results" aria-live="polite" aria-labelledby="results-title">
+        <h2 id="results-title">Resultado</h2>
+        <div id="status" class="status">Sube un archivo para empezar el análisis.</div>
+        <div id="output" class="output hidden">
+          <article>
+            <h3>Nombre y apellidos</h3>
+            <p id="fullName">—</p>
+          </article>
+          <article>
+            <h3>Empresas</h3>
+            <ul id="companies"></ul>
+          </article>
+          <article>
+            <h3>Roles</h3>
+            <ul id="roles"></ul>
+          </article>
+          <article>
+            <h3>Tecnologías</h3>
+            <ul id="technologies"></ul>
+          </article>
+          <article>
+            <h3>Idiomas</h3>
+            <ul id="languages"></ul>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

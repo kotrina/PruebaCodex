@@ -1,85 +1,36 @@
-# App de prueba: flujo de trabajo sugerido
+# CV Tech Parser SPA
 
-Este repositorio está preparado para definir una **app de prueba** con un flujo claro desde idea hasta despliegue.
+Landing + SPA para subir un CV en **PDF** o **DOCX** y extraer automáticamente información relevante para perfiles tech:
 
-## 1) Definir alcance (MVP)
+- Nombre y apellidos
+- Empresas
+- Roles
+- Tecnologías
+- Idiomas
 
-Primero acordamos un MVP pequeño para iterar rápido:
+## Cómo ejecutar
 
-- Objetivo de la app (qué problema valida).
-- Usuario principal.
-- 2–3 funcionalidades núcleo.
-- Métricas de éxito (ej. registros, tiempo en página, conversiones).
+Al ser una app estática, basta con levantar un servidor local en la carpeta del proyecto:
 
-## 2) Elegir stack
+```bash
+python -m http.server 4173
+```
 
-Para una app de prueba, una opción simple y robusta es:
+Luego abre `http://localhost:4173`.
 
-- **Frontend**: Next.js (React + TypeScript).
-- **Backend/API**: rutas API de Next.js o un servicio Node/Express.
-- **Base de datos**: PostgreSQL (o SQLite al inicio).
-- **Auth**: NextAuth o Clerk si se requiere login.
+## Cómo funciona
 
-## 3) Flujo de desarrollo
+- Para PDF se usa **PDF.js** desde CDN.
+- Para DOCX se usa **Mammoth.js** desde CDN.
+- El parsing de entidades se realiza con heurísticas de keywords y patrones simples para detectar:
+  - nombre completo
+  - empresas
+  - roles
+  - stack tecnológico
+  - idiomas
 
-1. Crear backlog de tareas pequeñas.
-2. Trabajar por ramas (`feature/...`).
-3. Abrir PR por cada cambio relevante.
-4. Ejecutar checks automáticos:
-   - lint
-   - tests
-   - build
-5. Merge a `main` cuando todo está en verde.
+## Limitaciones conocidas
 
-## 4) Entornos
-
-Recomendados:
-
-- `local`: desarrollo.
-- `staging`: validación previa.
-- `production`: entorno real.
-
-Variables sensibles en `.env` (nunca en Git).
-
-## 5) CI/CD (despliegue)
-
-Pipeline recomendado (GitHub Actions):
-
-1. **CI en PR**
-   - Instalar dependencias.
-   - Ejecutar lint/tests/build.
-2. **Deploy a staging** al merge de `develop` o rama de staging.
-3. **Deploy a producción** con aprobación manual o al merge de `main`.
-
-## 6) Opciones de despliegue
-
-- **Vercel**: ideal para Next.js, muy rápido para prototipos.
-- **Render/Railway/Fly.io**: bueno para backend + DB simple.
-- **AWS/GCP/Azure**: más control, más complejidad.
-
-Para una app de prueba, normalmente recomiendo **Vercel + Postgres gestionado**.
-
-## 7) Observabilidad y operación
-
-- Logs centralizados.
-- Error tracking (Sentry).
-- Métricas de uso básicas (PostHog/GA4).
-- Backups de base de datos.
-
-## 8) Seguridad mínima desde el inicio
-
-- HTTPS obligatorio.
-- Sanitización y validación de inputs.
-- Límite de rate en endpoints críticos.
-- Secretos en gestor seguro (no en repositorio).
-
-## 9) Roadmap típico en 2 semanas
-
-- Días 1–2: definición de MVP y diseño técnico.
-- Días 3–6: desarrollo funcional principal.
-- Días 7–8: pruebas y estabilización.
-- Días 9–10: staging + ajustes + despliegue a producción.
-
----
-
-Si quieres, en el siguiente paso te puedo proponer una plantilla concreta (estructura de carpetas, scripts de `npm`, Docker opcional y un workflow de GitHub Actions listo para usar).
+- La extracción depende de la calidad del texto del CV (si está escaneado o muy maquetado puede fallar).
+- El parser de empresas es heurístico y puede incluir falsos positivos.
+- Está optimizado para iteración rápida de MVP, no para exactitud de producción.
