@@ -10,32 +10,27 @@ Landing + SPA para subir un CV en **PDF** o **DOCX** y extraer automáticamente 
 
 ## Cómo ejecutar
 
+Al ser una app estática, basta con levantar un servidor local en la carpeta del proyecto:
+
 ```bash
 python -m http.server 4173
 ```
 
 Luego abre `http://localhost:4173`.
 
-## Cómo probar la app
+## Cómo funciona
 
-1. Introduce tu **Gemini API key** en el campo `Gemini API Key`.
-2. Pulsa **Seleccionar archivo** y sube tu CV (`.pdf`, `.doc`, `.docx`).
-3. Espera a que termine:
-   - primero se extrae texto del archivo,
-   - después se llama al LLM para estructurar el contenido.
-4. Revisa los resultados de nombre, empresas, roles, tecnologías e idiomas.
-
-## Lógica actual
-
-- Extracción de texto:
-  - **PDF.js** para PDF.
-  - **Mammoth.js** para DOCX.
-- Extracción de entidades:
-  - llamada a **Gemini API (Google AI)** (`gemini-1.5-flash-latest`) con salida JSON estructurada.
-  - el modelo devuelve directamente `fullName`, `companies`, `roles`, `technologies`, `languages`.
+- Para PDF se usa **PDF.js** desde CDN.
+- Para DOCX se usa **Mammoth.js** desde CDN.
+- El parsing de entidades se realiza con heurísticas de keywords y patrones simples para detectar:
+  - nombre completo
+  - empresas
+  - roles
+  - stack tecnológico
+  - idiomas
 
 ## Limitaciones conocidas
 
-- Necesita conexión a internet y una API key válida de Gemini.
-- El resultado depende de la calidad del texto extraído del CV.
-- En CVs con formato complejo o escaneados, la extracción previa puede perder información.
+- La extracción depende de la calidad del texto del CV (si está escaneado o muy maquetado puede fallar).
+- El parser de empresas es heurístico y puede incluir falsos positivos.
+- Está optimizado para iteración rápida de MVP, no para exactitud de producción.

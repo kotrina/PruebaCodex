@@ -39,26 +39,6 @@ body {
   margin-top: 1rem;
 }
 
-
-.field-label {
-  display: block;
-  margin-top: 0.8rem;
-  margin-bottom: 0.3rem;
-  font-weight: 600;
-}
-
-.text-input {
-  width: min(100%, 420px);
-  padding: 0.65rem 0.75rem;
-  border: 1px solid #c8d2ee;
-  border-radius: 10px;
-  font-size: 0.95rem;
-}
-
-.text-input:focus {
-  outline: 2px solid #a7b9ff;
-  border-color: #7f99ff;
-}
 input[type="file"] {
   position: absolute;
   opacity: 0;

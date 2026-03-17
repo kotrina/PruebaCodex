@@ -4,7 +4,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.mjs";
 
 const fileInput = document.getElementById("cvFile");
-const apiKeyInput = document.getElementById("apiKey");
 const fileMeta = document.getElementById("fileMeta");
 const statusNode = document.getElementById("status");
 const outputNode = document.getElementById("output");
@@ -15,22 +14,30 @@ const rolesNode = document.getElementById("roles");
 const technologiesNode = document.getElementById("technologies");
 const languagesNode = document.getElementById("languages");
 
+const ROLE_KEYWORDS = [
+  "frontend", "backend", "full stack", "devops", "data engineer", "data scientist", "qa", "sre",
+  "arquitecto", "ingeniero", "developer", "desarrollador", "tech lead", "cto", "product manager"
+];
+
+const TECH_KEYWORDS = [
+  "javascript", "typescript", "python", "java", "c#", "c++", "go", "rust", "php", "ruby", "kotlin",
+  "swift", "react", "angular", "vue", "node", "express", "nestjs", "django", "flask", "spring",
+  "laravel", "docker", "kubernetes", "aws", "azure", "gcp", "postgresql", "mysql", "mongodb",
+  "redis", "graphql", "rest", "terraform", "ansible", "git", "linux", "html", "css"
+];
+
+const LANGUAGE_KEYWORDS = [
+  "español", "inglés", "francés", "alemán", "italiano", "portugués", "catalán", "valenciano"
+];
+
 fileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
-  const apiKey = apiKeyInput.value.trim();
-
   if (!file) {
     return;
   }
 
-  if (!apiKey) {
-    setStatus("Debes introducir una Gemini API key antes de analizar el CV.");
-    outputNode.classList.add("hidden");
-    return;
-  }
-
   fileMeta.textContent = `${file.name} • ${(file.size / 1024).toFixed(1)} KB`;
-  setStatus("Extrayendo texto del CV...");
+  setStatus("Procesando archivo...");
   outputNode.classList.add("hidden");
 
   try {
@@ -39,15 +46,12 @@ fileInput.addEventListener("change", async (event) => {
       throw new Error("No se pudo extraer texto del archivo.");
     }
 
-    setStatus("Analizando CV con Gemini...");
-    const profile = await extractProfileWithGemini(text, apiKey);
-
+    const profile = extractProfile(text);
     renderProfile(profile);
     setStatus("Análisis completado.");
     outputNode.classList.remove("hidden");
   } catch (error) {
     setStatus(`Error: ${error.message}`);
-    outputNode.classList.add("hidden");
   }
 });
 
@@ -90,86 +94,49 @@ async function extractTextFromDocx(file) {
   return result.value;
 }
 
-async function extractProfileWithGemini(cvText, apiKey) {
-  const schema = {
-    type: "OBJECT",
-    properties: {
-      fullName: { type: "STRING" },
-      companies: { type: "ARRAY", items: { type: "STRING" } },
-      roles: { type: "ARRAY", items: { type: "STRING" } },
-      technologies: { type: "ARRAY", items: { type: "STRING" } },
-      languages: { type: "ARRAY", items: { type: "STRING" } }
-    },
-    required: ["fullName", "companies", "roles", "technologies", "languages"]
-  };
-
-  const endpoint =
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [
-          {
-            text: "Eres un parser de CVs tech. Extrae entidades con precisión y responde solo JSON válido según el esquema."
-          }
-        ]
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text:
-                `Extrae esta información del CV: nombre y apellidos, empresas donde trabajó, roles, tecnologías e idiomas.\n` +
-                `Si algo no aparece, devuelve [] para listas y 'No identificado' para fullName.\n\nCV:\n${cvText}`
-            }
-          ]
-        }
-      ],
-      generationConfig: {
-        temperature: 0.1,
-        responseMimeType: "application/json",
-        responseSchema: schema
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`No se pudo consultar Gemini (${response.status}). ${errorText}`);
-  }
-
-  const payload = await response.json();
-  const raw = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!raw) {
-    throw new Error("Gemini no devolvió contenido parseable.");
-  }
-
-  const parsed = JSON.parse(raw);
+function extractProfile(text) {
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 
   return {
-    fullName: parsed.fullName || "No identificado",
-    companies: normalizeList(parsed.companies),
-    roles: normalizeList(parsed.roles),
-    technologies: normalizeList(parsed.technologies),
-    languages: normalizeList(parsed.languages)
+    fullName: findName(lines),
+    companies: unique(findCompanies(lines)),
+    roles: unique(findByKeywords(normalizedText, ROLE_KEYWORDS)),
+    technologies: unique(findByKeywords(normalizedText, TECH_KEYWORDS)),
+    languages: unique(findByKeywords(normalizedText, LANGUAGE_KEYWORDS))
   };
 }
 
-function normalizeList(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return [...new Set(value.map((item) => String(item).trim()).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, "es")
+function findName(lines) {
+  const nameCandidate = lines.find(
+    (line) =>
+      /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?$/.test(line)
   );
+  return nameCandidate ?? "No identificado";
+}
+
+function findCompanies(lines) {
+  const indicators = ["empresa", "company", "experiencia", "trabajé", "trabaje", "cliente"];
+  const companyRegex = /\b(?:[A-Z][A-Za-z0-9&.-]+(?:\s+[A-Z][A-Za-z0-9&.-]+){0,3})\b/g;
+
+  const scoped = lines.filter((line) =>
+    indicators.some((indicator) => line.toLowerCase().includes(indicator))
+  );
+
+  const matches = scoped.flatMap((line) => line.match(companyRegex) ?? []);
+  return matches.filter((name) => name.length > 2);
+}
+
+function findByKeywords(text, keywords) {
+  const lower = text.toLowerCase();
+  return keywords.filter((keyword) => lower.includes(keyword));
+}
+
+function unique(values) {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b, "es"));
 }
 
 function renderProfile(profile) {
