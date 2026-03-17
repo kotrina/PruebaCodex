@@ -1,79 +1,119 @@
 import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.min.mjs";
 
-console.log("app.js cargado correctamente");
+console.log("app.js cargado");
 
-// Para evitar guerra de workers en despliegues sencillos
-pdfjsLib.GlobalWorkerOptions.workerSrc = null;
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.mjs";
 
-const fileInput = document.getElementById("cvFile");
-const apiKeyInput = document.getElementById("apiKey");
-const fileMeta = document.getElementById("fileMeta");
-const statusNode = document.getElementById("status");
-const outputNode = document.getElementById("output");
-const fullNameNode = document.getElementById("fullName");
+document.addEventListener("DOMContentLoaded", () => {
+  initApp();
+});
 
-const companiesNode = document.getElementById("companies");
-const rolesNode = document.getElementById("roles");
-const technologiesNode = document.getElementById("technologies");
-const languagesNode = document.getElementById("languages");
+function initApp() {
+  console.log("Inicializando app...");
 
-if (
-  !fileInput || !apiKeyInput || !fileMeta || !statusNode || !outputNode || !fullNameNode ||
-  !companiesNode || !rolesNode || !technologiesNode || !languagesNode
-) {
-  console.error("Faltan elementos del DOM. Revisa los IDs del HTML.");
-}
+  const els = {
+    fileInput: document.getElementById("cvFile"),
+    analyzeBtn: document.getElementById("analyzeBtn"),
+    apiKeyInput: document.getElementById("apiKey"),
+    fileMeta: document.getElementById("fileMeta"),
+    statusNode: document.getElementById("status"),
+    outputNode: document.getElementById("output"),
+    fullNameNode: document.getElementById("fullName"),
+    companiesNode: document.getElementById("companies"),
+    rolesNode: document.getElementById("roles"),
+    technologiesNode: document.getElementById("technologies"),
+    languagesNode: document.getElementById("languages")
+  };
 
-fileInput?.addEventListener("change", async (event) => {
-  console.log("Evento change disparado");
+  const missing = Object.entries(els)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
 
-  const file = event.target.files?.[0];
-  const apiKey = apiKeyInput.value.trim();
-
-  console.log("Archivo:", file);
-  console.log("API key:", apiKey ? "OK" : "VACÍA");
-
-  if (!file) return;
-
-  if (!apiKey) {
-    setStatus("Debes introducir una Gemini API key antes de analizar el CV.");
-    outputNode.classList.add("hidden");
+  if (missing.length) {
+    console.error("Faltan elementos del DOM:", missing);
+    if (els.statusNode) {
+      els.statusNode.textContent = `Error de interfaz. Faltan elementos: ${missing.join(", ")}`;
+    }
     return;
   }
 
-  fileMeta.textContent = `${file.name} • ${(file.size / 1024).toFixed(1)} KB`;
-  setStatus("Extrayendo texto del CV...");
-  outputNode.classList.add("hidden");
+  let selectedFile = null;
 
-  try {
-    const text = await extractText(file);
+  els.fileInput.addEventListener("change", (event) => {
+    console.log("Archivo cambiado");
 
-    if (!text.trim()) {
-      throw new Error("No se pudo extraer texto del archivo.");
+    selectedFile = event.target.files?.[0] || null;
+
+    if (!selectedFile) {
+      els.fileMeta.textContent = "Aún no has seleccionado ningún archivo.";
+      setStatus(els.statusNode, "No hay archivo seleccionado.");
+      return;
     }
 
-    const compactText = compactCvText(text);
-    console.log("Longitud texto original:", text.length);
-    console.log("Longitud texto enviado:", compactText.length);
+    els.fileMeta.textContent = `${selectedFile.name} • ${(selectedFile.size / 1024).toFixed(1)} KB`;
+    setStatus(els.statusNode, "Archivo seleccionado. Pulsa “Analizar CV”.");
+  });
 
-    setStatus("Analizando CV con Gemini...");
-    const profile = await extractProfileWithGemini(compactText, apiKey);
+  els.analyzeBtn.addEventListener("click", async () => {
+    console.log("Click en Analizar CV");
 
-    renderProfile(profile);
-    setStatus("Análisis completado.");
-    outputNode.classList.remove("hidden");
-  } catch (error) {
-    console.error(error);
-    setStatus(`Error: ${error.message}`);
-    outputNode.classList.add("hidden");
-  }
-});
+    const apiKey = els.apiKeyInput.value.trim();
+
+    if (!selectedFile) {
+      setStatus(els.statusNode, "Selecciona un archivo antes de analizar.");
+      return;
+    }
+
+    if (!apiKey) {
+      setStatus(els.statusNode, "Debes introducir una Gemini API key antes de analizar el CV.");
+      return;
+    }
+
+    els.outputNode.classList.add("hidden");
+
+    try {
+      setStatus(els.statusNode, "Leyendo archivo...");
+      const text = await extractText(selectedFile);
+
+      if (!text.trim()) {
+        throw new Error("No se pudo extraer texto del archivo.");
+      }
+
+      const fullCvText = compactCvText(text);
+
+      console.log("Longitud texto original:", text.length);
+      console.log("Longitud texto enviado:", fullCvText.length);
+
+      setStatus(els.statusNode, "Consultando Gemini...");
+      const profile = await extractProfileWithGemini(fullCvText, apiKey);
+
+      renderProfile(els, profile);
+      els.outputNode.classList.remove("hidden");
+      setStatus(els.statusNode, "Análisis completado.");
+    } catch (error) {
+      console.error("Error en análisis:", error);
+      setStatus(els.statusNode, `Error: ${error.message}`);
+      els.outputNode.classList.add("hidden");
+    }
+  });
+}
+
+function setStatus(node, message) {
+  console.log("STATUS:", message);
+  node.textContent = message;
+}
 
 async function extractText(file) {
   const extension = file.name.split(".").pop()?.toLowerCase();
 
-  if (extension === "pdf") return extractTextFromPdf(file);
-  if (extension === "docx" || extension === "doc") return extractTextFromDocx(file);
+  if (extension === "pdf") {
+    return extractTextFromPdf(file);
+  }
+
+  if (extension === "docx" || extension === "doc") {
+    return extractTextFromDocx(file);
+  }
 
   throw new Error("Formato no soportado. Usa PDF o DOCX.");
 }
@@ -82,17 +122,9 @@ function readFileAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
-    reader.onload = () => {
-      resolve(reader.result);
-    };
-
-    reader.onerror = () => {
-      reject(new Error("El navegador no pudo leer el archivo seleccionado."));
-    };
-
-    reader.onabort = () => {
-      reject(new Error("La lectura del archivo fue cancelada."));
-    };
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("El navegador no pudo leer el archivo seleccionado."));
+    reader.onabort = () => reject(new Error("La lectura del archivo fue cancelada."));
 
     reader.readAsArrayBuffer(file);
   });
@@ -100,17 +132,13 @@ function readFileAsArrayBuffer(file) {
 
 async function extractTextFromPdf(file) {
   try {
-    // Usamos FileReader en vez de file.arrayBuffer() para evitar el NotReadableError en algunos navegadores/despliegues
     const arrayBuffer = await readFileAsArrayBuffer(file);
     const data = new Uint8Array(arrayBuffer);
 
     const loadingTask = pdfjsLib.getDocument({
       data,
-      disableWorker: true,
       disableStream: true,
-      disableAutoFetch: true,
-      isEvalSupported: false,
-      useSystemFonts: true
+      disableAutoFetch: true
     });
 
     const pdf = await loadingTask.promise;
@@ -181,98 +209,79 @@ async function extractProfileWithGemini(cvText, apiKey) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 90000);
 
-  const requestBody = {
-    systemInstruction: {
-      parts: [
-        {
-          text:
-            "Extrae datos de un CV tech y responde solo JSON válido. " +
-            "No inventes. " +
-            "companies = empleadores reales. " +
-            "roles = puestos reales. " +
-            "technologies = skills técnicas. " +
-            "languages = idiomas humanos."
-        }
-      ]
-    },
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            text:
-              `Devuelve:\n` +
-              `- fullName\n` +
-              `- companies\n` +
-              `- roles\n` +
-              `- technologies\n` +
-              `- languages\n\n` +
-              `Reglas:\n` +
-              `- No incluyas universidades, ciudades, meses, proyectos, headings, clouds sueltos, herramientas como empresas, ni palabras aisladas.\n` +
-              `- Si falta algo, usa [] o "No identificado".\n\n` +
-              `CV:\n${cvText}`
-          }
-        ]
-      }
-    ],
-    generationConfig: {
-      temperature: 0,
-      responseMimeType: "application/json",
-      responseSchema: schema
-    }
-  };
-
-  let response;
-
   try {
-    response = await fetch(endpoint, {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [
+            {
+              text:
+                "Extrae datos de un CV tech y responde solo JSON válido. " +
+                "No inventes. companies = empleadores reales. roles = puestos reales. " +
+                "technologies = skills técnicas. languages = idiomas humanos."
+            }
+          ]
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text:
+                  `Devuelve fullName, companies, roles, technologies y languages.\n` +
+                  `No incluyas universidades, ciudades, meses, proyectos, headings ni palabras aisladas.\n\n` +
+                  `CV:\n${cvText}`
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: "application/json",
+          responseSchema: schema
+        }
+      }),
       signal: controller.signal
     });
-  } catch (error) {
-    clearTimeout(timeoutId);
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini respondió con error (${response.status}): ${errorText}`);
+    }
+
+    const payload = await response.json();
+    const raw = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!raw) {
+      throw new Error("Gemini no devolvió contenido parseable.");
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error("Gemini devolvió una respuesta que no es JSON válido.");
+    }
+
+    return {
+      fullName: cleanFullName(parsed.fullName),
+      companies: cleanCompanies(parsed.companies),
+      roles: cleanRoles(parsed.roles),
+      technologies: cleanTechnologies(parsed.technologies),
+      languages: cleanLanguages(parsed.languages)
+    };
+  } catch (error) {
     if (error.name === "AbortError") {
       throw new Error("La petición a Gemini ha tardado demasiado y ha expirado.");
     }
-
-    throw new Error(
-      "No se pudo conectar con Gemini. Comprueba la API key, localhost o producción y bloqueos del navegador."
-    );
+    throw error;
   } finally {
     clearTimeout(timeoutId);
   }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini respondió con error (${response.status}): ${errorText}`);
-  }
-
-  const payload = await response.json();
-  const raw = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!raw) {
-    throw new Error("Gemini no devolvió contenido parseable.");
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("Gemini devolvió una respuesta que no es JSON válido.");
-  }
-
-  return {
-    fullName: cleanFullName(parsed.fullName),
-    companies: cleanCompanies(parsed.companies),
-    roles: cleanRoles(parsed.roles),
-    technologies: cleanTechnologies(parsed.technologies),
-    languages: cleanLanguages(parsed.languages)
-  };
 }
 
 function cleanFullName(value) {
@@ -284,84 +293,34 @@ function normalizeList(value) {
   if (!Array.isArray(value)) return [];
 
   return [...new Set(
-    value
-      .map((item) => String(item).replace(/\s+/g, " ").trim())
-      .filter(Boolean)
+    value.map((item) => String(item).replace(/\s+/g, " ").trim()).filter(Boolean)
   )].sort((a, b) => a.localeCompare(b, "es"));
 }
 
 function cleanCompanies(value) {
-  const bannedExact = new Set([
+  const banned = [
     "aws", "azure", "docker", "github", "linkedin", "python", "java", "scala",
-    "english", "spanish", "french", "granada", "andalusia", "cambridge",
-    "education", "experience", "projects", "knowledge", "languages",
-    "cloud", "data", "science", "development", "implementation",
-    "bachelor", "master", "msc", "bsc",
-    "january", "february", "march", "april", "may", "june", "july",
-    "august", "september", "october", "november", "december",
-    "the", "this", "today"
-  ]);
-
-  const bannedContains = [
-    "university", "universidad", "github", "linkedin", "project", "language",
-    "skill", "personal information", "personal skills", "computer science",
-    "data science", "artificial intelligence", "deep learning",
-    "object oriented", "app services", "function apps"
+    "english", "spanish", "french", "education", "experience", "projects",
+    "knowledge", "languages", "cloud", "data", "science"
   ];
 
   return normalizeList(value).filter((item) => {
     const lower = item.toLowerCase();
-
-    if (lower.length < 2) return false;
-    if (bannedExact.has(lower)) return false;
-    if (bannedContains.some((chunk) => lower.includes(chunk))) return false;
-    if (/^(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(lower)) {
-      return false;
-    }
-    if (/^[A-Z]?[a-z]+(?:\s[A-Z]?[a-z]+){0,2}$/.test(item) && bannedLikelyNoise(item)) {
-      return false;
-    }
-
-    return true;
+    return !banned.includes(lower) && !lower.includes("university") && !lower.includes("project");
   });
 }
 
-function bannedLikelyNoise(item) {
-  const noiseWords = [
-    "cloud", "data", "science", "development", "functional", "implementation",
-    "associate", "lead", "engineer", "devops", "intern", "bachelor",
-    "master", "doctor", "phone", "location"
-  ];
-
-  const lower = item.toLowerCase();
-  return noiseWords.some((word) => lower.includes(word));
-}
-
 function cleanRoles(value) {
-  const bannedContains = [
-    "github", "linkedin", "language", "university", "project",
-    "knowledge", "education", "phone", "location"
-  ];
-
   return normalizeList(value).filter((item) => {
     const lower = item.toLowerCase();
-    if (lower.length < 3) return false;
-    if (bannedContains.some((chunk) => lower.includes(chunk))) return false;
-    return true;
+    return !lower.includes("github") && !lower.includes("linkedin");
   });
 }
 
 function cleanTechnologies(value) {
-  const bannedContains = [
-    "linkedin", "github profile", "date of birth", "phone", "location",
-    "english", "spanish", "french"
-  ];
-
   return normalizeList(value).filter((item) => {
     const lower = item.toLowerCase();
-    if (lower.length < 2) return false;
-    if (bannedContains.some((chunk) => lower.includes(chunk))) return false;
-    return true;
+    return !["english", "spanish", "french"].includes(lower);
   });
 }
 
@@ -376,25 +335,17 @@ function cleanLanguages(value) {
     ["catalan", "Catalan"]
   ]);
 
-  const normalized = normalizeList(value);
-  const result = [];
-
-  for (const item of normalized) {
-    const lower = item.toLowerCase();
-    if (allowed.has(lower)) {
-      result.push(allowed.get(lower));
-    }
-  }
-
-  return [...new Set(result)];
+  return normalizeList(value)
+    .map((item) => allowed.get(item.toLowerCase()))
+    .filter(Boolean);
 }
 
-function renderProfile(profile) {
-  fullNameNode.textContent = profile.fullName;
-  fillList(companiesNode, profile.companies);
-  fillList(rolesNode, profile.roles);
-  fillList(technologiesNode, profile.technologies);
-  fillList(languagesNode, profile.languages);
+function renderProfile(els, profile) {
+  els.fullNameNode.textContent = profile.fullName;
+  fillList(els.companiesNode, profile.companies);
+  fillList(els.rolesNode, profile.roles);
+  fillList(els.technologiesNode, profile.technologies);
+  fillList(els.languagesNode, profile.languages);
 }
 
 function fillList(node, items) {
@@ -413,8 +364,4 @@ function fillList(node, items) {
     li.textContent = item;
     node.append(li);
   }
-}
-
-function setStatus(message) {
-  statusNode.textContent = message;
 }
