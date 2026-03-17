@@ -62,8 +62,12 @@ async function extractText(file) {
     return extractTextFromPdf(file);
   }
 
-  if (extension === "docx" || extension === "doc") {
+  if (extension === "docx") {
     return extractTextFromDocx(file);
+  }
+
+  if (extension === "doc") {
+    throw new Error("El formato .doc no es compatible. Convierte el archivo a DOCX o PDF.");
   }
 
   throw new Error("Formato no soportado. Usa PDF o DOCX.");
