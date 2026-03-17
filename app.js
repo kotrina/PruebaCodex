@@ -2,8 +2,8 @@ import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136
 
 console.log("app.js cargado correctamente");
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.mjs";
+// Para evitar guerra de workers en despliegues sencillos
+pdfjsLib.GlobalWorkerOptions.workerSrc = null;
 
 const fileInput = document.getElementById("cvFile");
 const apiKeyInput = document.getElementById("apiKey");
@@ -38,7 +38,6 @@ fileInput?.addEventListener("change", async (event) => {
   if (!apiKey) {
     setStatus("Debes introducir una Gemini API key antes de analizar el CV.");
     outputNode.classList.add("hidden");
-    fileInput.value = "";
     return;
   }
 
@@ -67,8 +66,6 @@ fileInput?.addEventListener("change", async (event) => {
     console.error(error);
     setStatus(`Error: ${error.message}`);
     outputNode.classList.add("hidden");
-  } finally {
-    fileInput.value = "";
   }
 });
 
@@ -81,16 +78,39 @@ async function extractText(file) {
   throw new Error("Formato no soportado. Usa PDF o DOCX.");
 }
 
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      resolve(reader.result);
+    };
+
+    reader.onerror = () => {
+      reject(new Error("El navegador no pudo leer el archivo seleccionado."));
+    };
+
+    reader.onabort = () => {
+      reject(new Error("La lectura del archivo fue cancelada."));
+    };
+
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 async function extractTextFromPdf(file) {
-  let loadingTask;
-
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const data = new Uint8Array(arrayBuffer).slice();
+    // Usamos FileReader en vez de file.arrayBuffer() para evitar el NotReadableError en algunos navegadores/despliegues
+    const arrayBuffer = await readFileAsArrayBuffer(file);
+    const data = new Uint8Array(arrayBuffer);
 
-    loadingTask = pdfjsLib.getDocument({
+    const loadingTask = pdfjsLib.getDocument({
       data,
-      useWorkerFetch: false
+      disableWorker: true,
+      disableStream: true,
+      disableAutoFetch: true,
+      isEvalSupported: false,
+      useSystemFonts: true
     });
 
     const pdf = await loadingTask.promise;
@@ -112,14 +132,6 @@ async function extractTextFromPdf(file) {
     return pages.join("\n");
   } catch (error) {
     throw new Error(`No se pudo leer el PDF. ${error.message}`);
-  } finally {
-    if (loadingTask) {
-      try {
-        await loadingTask.destroy();
-      } catch {
-        // ignorar
-      }
-    }
   }
 }
 
@@ -129,7 +141,7 @@ async function extractTextFromDocx(file) {
   }
 
   try {
-    const arrayBuffer = await file.arrayBuffer();
+    const arrayBuffer = await readFileAsArrayBuffer(file);
     const result = await window.mammoth.extractRawText({ arrayBuffer });
     return result.value;
   } catch (error) {
@@ -145,14 +157,8 @@ function compactCvText(text) {
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  // Para CVs normales esto suele sobrar.
   const MAX_CHARS = 18000;
-
-  if (cleaned.length <= MAX_CHARS) {
-    return cleaned;
-  }
-
-  return cleaned.slice(0, MAX_CHARS);
+  return cleaned.length <= MAX_CHARS ? cleaned : cleaned.slice(0, MAX_CHARS);
 }
 
 async function extractProfileWithGemini(cvText, apiKey) {
@@ -168,7 +174,6 @@ async function extractProfileWithGemini(cvText, apiKey) {
     required: ["fullName", "companies", "roles", "technologies", "languages"]
   };
 
-  // Modelo más rápido
   const model = "gemini-2.5-flash-lite";
   const endpoint =
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
@@ -236,7 +241,7 @@ async function extractProfileWithGemini(cvText, apiKey) {
     }
 
     throw new Error(
-      "No se pudo conectar con Gemini. Comprueba la API key, localhost y bloqueos del navegador."
+      "No se pudo conectar con Gemini. Comprueba la API key, localhost o producción y bloqueos del navegador."
     );
   } finally {
     clearTimeout(timeoutId);
