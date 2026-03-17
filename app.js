@@ -1,9 +1,12 @@
 import * as pdfjsLib from "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.min.mjs";
 
+console.log("app.js cargado correctamente");
+
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.5.136/pdf.worker.min.mjs";
 
 const fileInput = document.getElementById("cvFile");
+const apiKeyInput = document.getElementById("apiKey");
 const fileMeta = document.getElementById("fileMeta");
 const statusNode = document.getElementById("status");
 const outputNode = document.getElementById("output");
@@ -14,74 +17,110 @@ const rolesNode = document.getElementById("roles");
 const technologiesNode = document.getElementById("technologies");
 const languagesNode = document.getElementById("languages");
 
-const ROLE_KEYWORDS = [
-  "frontend", "backend", "full stack", "devops", "data engineer", "data scientist", "qa", "sre",
-  "arquitecto", "ingeniero", "developer", "desarrollador", "tech lead", "cto", "product manager"
-];
+if (
+  !fileInput || !apiKeyInput || !fileMeta || !statusNode || !outputNode || !fullNameNode ||
+  !companiesNode || !rolesNode || !technologiesNode || !languagesNode
+) {
+  console.error("Faltan elementos del DOM. Revisa los IDs del HTML.");
+}
 
-const TECH_KEYWORDS = [
-  "javascript", "typescript", "python", "java", "c#", "c++", "go", "rust", "php", "ruby", "kotlin",
-  "swift", "react", "angular", "vue", "node", "express", "nestjs", "django", "flask", "spring",
-  "laravel", "docker", "kubernetes", "aws", "azure", "gcp", "postgresql", "mysql", "mongodb",
-  "redis", "graphql", "rest", "terraform", "ansible", "git", "linux", "html", "css"
-];
+fileInput?.addEventListener("change", async (event) => {
+  console.log("Evento change disparado");
 
-const LANGUAGE_KEYWORDS = [
-  "español", "inglés", "francés", "alemán", "italiano", "portugués", "catalán", "valenciano"
-];
-
-fileInput.addEventListener("change", async (event) => {
   const file = event.target.files?.[0];
-  if (!file) {
+  const apiKey = apiKeyInput.value.trim();
+
+  console.log("Archivo:", file);
+  console.log("API key:", apiKey ? "OK" : "VACÍA");
+
+  if (!file) return;
+
+  if (!apiKey) {
+    setStatus("Debes introducir una Gemini API key antes de analizar el CV.");
+    outputNode.classList.add("hidden");
+    fileInput.value = "";
     return;
   }
 
   fileMeta.textContent = `${file.name} • ${(file.size / 1024).toFixed(1)} KB`;
-  setStatus("Procesando archivo...");
+  setStatus("Extrayendo texto del CV...");
   outputNode.classList.add("hidden");
 
   try {
     const text = await extractText(file);
+
     if (!text.trim()) {
       throw new Error("No se pudo extraer texto del archivo.");
     }
 
-    const profile = extractProfile(text);
+    const compactText = compactCvText(text);
+    console.log("Longitud texto original:", text.length);
+    console.log("Longitud texto enviado:", compactText.length);
+
+    setStatus("Analizando CV con Gemini...");
+    const profile = await extractProfileWithGemini(compactText, apiKey);
+
     renderProfile(profile);
     setStatus("Análisis completado.");
     outputNode.classList.remove("hidden");
   } catch (error) {
+    console.error(error);
     setStatus(`Error: ${error.message}`);
+    outputNode.classList.add("hidden");
+  } finally {
+    fileInput.value = "";
   }
 });
 
 async function extractText(file) {
   const extension = file.name.split(".").pop()?.toLowerCase();
 
-  if (extension === "pdf") {
-    return extractTextFromPdf(file);
-  }
-
-  if (extension === "docx" || extension === "doc") {
-    return extractTextFromDocx(file);
-  }
+  if (extension === "pdf") return extractTextFromPdf(file);
+  if (extension === "docx" || extension === "doc") return extractTextFromDocx(file);
 
   throw new Error("Formato no soportado. Usa PDF o DOCX.");
 }
 
 async function extractTextFromPdf(file) {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let loadingTask;
 
-  const pages = [];
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    const pageText = content.items.map((item) => item.str).join(" ");
-    pages.push(pageText);
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer).slice();
+
+    loadingTask = pdfjsLib.getDocument({
+      data,
+      useWorkerFetch: false
+    });
+
+    const pdf = await loadingTask.promise;
+    const pages = [];
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
+      const page = await pdf.getPage(pageNum);
+      const content = await page.getTextContent();
+
+      const pageText = content.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      pages.push(pageText);
+    }
+
+    return pages.join("\n");
+  } catch (error) {
+    throw new Error(`No se pudo leer el PDF. ${error.message}`);
+  } finally {
+    if (loadingTask) {
+      try {
+        await loadingTask.destroy();
+      } catch {
+        // ignorar
+      }
+    }
   }
-
-  return pages.join("\n");
 }
 
 async function extractTextFromDocx(file) {
@@ -89,54 +128,260 @@ async function extractTextFromDocx(file) {
     throw new Error("La librería para leer DOCX no está disponible.");
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const result = await window.mammoth.extractRawText({ arrayBuffer });
-  return result.value;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await window.mammoth.extractRawText({ arrayBuffer });
+    return result.value;
+  } catch (error) {
+    throw new Error(`No se pudo leer el DOCX. ${error.message}`);
+  }
 }
 
-function extractProfile(text) {
-  const normalizedText = text.replace(/\s+/g, " ").trim();
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+function compactCvText(text) {
+  const cleaned = text
+    .replace(/\r/g, "\n")
+    .replace(/\t/g, " ")
+    .replace(/[ ]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  // Para CVs normales esto suele sobrar.
+  const MAX_CHARS = 18000;
+
+  if (cleaned.length <= MAX_CHARS) {
+    return cleaned;
+  }
+
+  return cleaned.slice(0, MAX_CHARS);
+}
+
+async function extractProfileWithGemini(cvText, apiKey) {
+  const schema = {
+    type: "OBJECT",
+    properties: {
+      fullName: { type: "STRING" },
+      companies: { type: "ARRAY", items: { type: "STRING" } },
+      roles: { type: "ARRAY", items: { type: "STRING" } },
+      technologies: { type: "ARRAY", items: { type: "STRING" } },
+      languages: { type: "ARRAY", items: { type: "STRING" } }
+    },
+    required: ["fullName", "companies", "roles", "technologies", "languages"]
+  };
+
+  // Modelo más rápido
+  const model = "gemini-2.5-flash-lite";
+  const endpoint =
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+  const requestBody = {
+    systemInstruction: {
+      parts: [
+        {
+          text:
+            "Extrae datos de un CV tech y responde solo JSON válido. " +
+            "No inventes. " +
+            "companies = empleadores reales. " +
+            "roles = puestos reales. " +
+            "technologies = skills técnicas. " +
+            "languages = idiomas humanos."
+        }
+      ]
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text:
+              `Devuelve:\n` +
+              `- fullName\n` +
+              `- companies\n` +
+              `- roles\n` +
+              `- technologies\n` +
+              `- languages\n\n` +
+              `Reglas:\n` +
+              `- No incluyas universidades, ciudades, meses, proyectos, headings, clouds sueltos, herramientas como empresas, ni palabras aisladas.\n` +
+              `- Si falta algo, usa [] o "No identificado".\n\n` +
+              `CV:\n${cvText}`
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseSchema: schema
+    }
+  };
+
+  let response;
+
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error.name === "AbortError") {
+      throw new Error("La petición a Gemini ha tardado demasiado y ha expirado.");
+    }
+
+    throw new Error(
+      "No se pudo conectar con Gemini. Comprueba la API key, localhost y bloqueos del navegador."
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini respondió con error (${response.status}): ${errorText}`);
+  }
+
+  const payload = await response.json();
+  const raw = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!raw) {
+    throw new Error("Gemini no devolvió contenido parseable.");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Gemini devolvió una respuesta que no es JSON válido.");
+  }
 
   return {
-    fullName: findName(lines),
-    companies: unique(findCompanies(lines)),
-    roles: unique(findByKeywords(normalizedText, ROLE_KEYWORDS)),
-    technologies: unique(findByKeywords(normalizedText, TECH_KEYWORDS)),
-    languages: unique(findByKeywords(normalizedText, LANGUAGE_KEYWORDS))
+    fullName: cleanFullName(parsed.fullName),
+    companies: cleanCompanies(parsed.companies),
+    roles: cleanRoles(parsed.roles),
+    technologies: cleanTechnologies(parsed.technologies),
+    languages: cleanLanguages(parsed.languages)
   };
 }
 
-function findName(lines) {
-  const nameCandidate = lines.find(
-    (line) =>
-      /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?$/.test(line)
-  );
-  return nameCandidate ?? "No identificado";
+function cleanFullName(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text || "No identificado";
 }
 
-function findCompanies(lines) {
-  const indicators = ["empresa", "company", "experiencia", "trabajé", "trabaje", "cliente"];
-  const companyRegex = /\b(?:[A-Z][A-Za-z0-9&.-]+(?:\s+[A-Z][A-Za-z0-9&.-]+){0,3})\b/g;
+function normalizeList(value) {
+  if (!Array.isArray(value)) return [];
 
-  const scoped = lines.filter((line) =>
-    indicators.some((indicator) => line.toLowerCase().includes(indicator))
-  );
-
-  const matches = scoped.flatMap((line) => line.match(companyRegex) ?? []);
-  return matches.filter((name) => name.length > 2);
+  return [...new Set(
+    value
+      .map((item) => String(item).replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b, "es"));
 }
 
-function findByKeywords(text, keywords) {
-  const lower = text.toLowerCase();
-  return keywords.filter((keyword) => lower.includes(keyword));
+function cleanCompanies(value) {
+  const bannedExact = new Set([
+    "aws", "azure", "docker", "github", "linkedin", "python", "java", "scala",
+    "english", "spanish", "french", "granada", "andalusia", "cambridge",
+    "education", "experience", "projects", "knowledge", "languages",
+    "cloud", "data", "science", "development", "implementation",
+    "bachelor", "master", "msc", "bsc",
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+    "the", "this", "today"
+  ]);
+
+  const bannedContains = [
+    "university", "universidad", "github", "linkedin", "project", "language",
+    "skill", "personal information", "personal skills", "computer science",
+    "data science", "artificial intelligence", "deep learning",
+    "object oriented", "app services", "function apps"
+  ];
+
+  return normalizeList(value).filter((item) => {
+    const lower = item.toLowerCase();
+
+    if (lower.length < 2) return false;
+    if (bannedExact.has(lower)) return false;
+    if (bannedContains.some((chunk) => lower.includes(chunk))) return false;
+    if (/^(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(lower)) {
+      return false;
+    }
+    if (/^[A-Z]?[a-z]+(?:\s[A-Z]?[a-z]+){0,2}$/.test(item) && bannedLikelyNoise(item)) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
-function unique(values) {
-  return [...new Set(values)].sort((a, b) => a.localeCompare(b, "es"));
+function bannedLikelyNoise(item) {
+  const noiseWords = [
+    "cloud", "data", "science", "development", "functional", "implementation",
+    "associate", "lead", "engineer", "devops", "intern", "bachelor",
+    "master", "doctor", "phone", "location"
+  ];
+
+  const lower = item.toLowerCase();
+  return noiseWords.some((word) => lower.includes(word));
+}
+
+function cleanRoles(value) {
+  const bannedContains = [
+    "github", "linkedin", "language", "university", "project",
+    "knowledge", "education", "phone", "location"
+  ];
+
+  return normalizeList(value).filter((item) => {
+    const lower = item.toLowerCase();
+    if (lower.length < 3) return false;
+    if (bannedContains.some((chunk) => lower.includes(chunk))) return false;
+    return true;
+  });
+}
+
+function cleanTechnologies(value) {
+  const bannedContains = [
+    "linkedin", "github profile", "date of birth", "phone", "location",
+    "english", "spanish", "french"
+  ];
+
+  return normalizeList(value).filter((item) => {
+    const lower = item.toLowerCase();
+    if (lower.length < 2) return false;
+    if (bannedContains.some((chunk) => lower.includes(chunk))) return false;
+    return true;
+  });
+}
+
+function cleanLanguages(value) {
+  const allowed = new Map([
+    ["spanish", "Spanish"],
+    ["english", "English"],
+    ["french", "French"],
+    ["german", "German"],
+    ["italian", "Italian"],
+    ["portuguese", "Portuguese"],
+    ["catalan", "Catalan"]
+  ]);
+
+  const normalized = normalizeList(value);
+  const result = [];
+
+  for (const item of normalized) {
+    const lower = item.toLowerCase();
+    if (allowed.has(lower)) {
+      result.push(allowed.get(lower));
+    }
+  }
+
+  return [...new Set(result)];
 }
 
 function renderProfile(profile) {

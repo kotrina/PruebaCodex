@@ -12,21 +12,27 @@
       <section class="hero">
         <h1>Analiza tu CV Tech al instante</h1>
         <p>
-          Sube tu CV en formato <strong>PDF</strong> o <strong>DOCX</strong> y extrae datos clave como nombre,
+          Sube tu CV en formato <strong>PDF</strong> o <strong>DOCX</strong> y deja que un LLM extraiga nombre,
           experiencia, roles, tecnologías e idiomas.
         </p>
       </section>
 
       <section class="uploader" aria-labelledby="upload-title">
         <h2 id="upload-title">Subir CV</h2>
+
+        <label class="field-label" for="apiKey">Gemini API Key</label>
+        <input id="apiKey" class="text-input" type="password" placeholder="AIza..." autocomplete="off" />
+
+        <label class="field-label" for="cvFile">CV (PDF, DOC, DOCX)</label>
         <label for="cvFile" class="upload-button">Seleccionar archivo</label>
         <input id="cvFile" type="file" accept=".pdf,.doc,.docx" />
+
         <p id="fileMeta" class="file-meta">Aún no has seleccionado ningún archivo.</p>
       </section>
 
       <section class="results" aria-live="polite" aria-labelledby="results-title">
         <h2 id="results-title">Resultado</h2>
-        <div id="status" class="status">Sube un archivo para empezar el análisis.</div>
+        <div id="status" class="status">Introduce tu API key de Gemini y sube un archivo para empezar el análisis.</div>
         <div id="output" class="output hidden">
           <article>
             <h3>Nombre y apellidos</h3>
